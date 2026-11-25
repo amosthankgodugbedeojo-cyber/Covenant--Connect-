@@ -26,11 +26,6 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: false
-
       - name: Accept Android SDK licenses and install packages
         run: |
           yes | sdkmanager --licenses
