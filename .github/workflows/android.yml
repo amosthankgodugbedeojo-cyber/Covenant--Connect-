@@ -1,106 +1,315 @@
-name: Build Covenant Connect APK
+package com.example.data.remote
 
-on:
-  workflow_dispatch:
-  push:
+import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
+import retrofit2.Response
+import retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.Header
+import retrofit2.http.PATCH
+import retrofit2.http.POST
+import retrofit2.http.Query
 
-permissions:
-  contents: read
+// ==========================================
+// AUTHENTICATION MODELS
+// ==========================================
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+@JsonClass(generateAdapter = true)
+data class SupabaseAuthRequest(
+    val email: String,
+    val password: String,
+    val data: Map<String, String>? = null
+)
 
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+@JsonClass(generateAdapter = true)
+data class SupabaseResendRequest(
+    val type: String = "signup",
+    val email: String
+)
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+@JsonClass(generateAdapter = true)
+data class SupabaseUserDto(
+    val id: String,
+    val email: String? = null,
+    @Json(name = "email_confirmed_at")
+    val emailConfirmedAt: String? = null
+)
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
+@JsonClass(generateAdapter = true)
+data class SupabaseAuthResponse(
+    @Json(name = "access_token")
+    val accessToken: String? = null,
+    @Json(name = "refresh_token")
+    val refreshToken: String? = null,
+    val user: SupabaseUserDto? = null
+)
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          cmdline-tools-version: '15859902'
-          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
 
-      - name: Extract project
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/covenant-source"
+// ==========================================
+// PROFILE MODEL
+// ==========================================
 
-          found=0
-          while IFS= read -r -d '' archive; do
-            if unzip -t "$archive" >/dev/null 2>&1; then
-              unzip -oq "$archive" -d "$RUNNER_TEMP/covenant-source"
-              found=1
-            fi
-          done < <(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -print0)
+@JsonClass(generateAdapter = true)
+data class ProfileDto(
+    val id: String,
 
-          if [ "$found" -ne 1 ]; then
-            echo "No valid project ZIP found"
-            exit 1
-          fi
+    @Json(name = "full_name")
+    val fullName: String = "",
 
-          settings_file=$(find "$RUNNER_TEMP/covenant-source" -type f -name settings.gradle.kts -print -quit)
+    @Json(name = "display_name")
+    val displayName: String? = null,
 
-          if [ -z "$settings_file" ]; then
-            echo "Project settings file not found"
-            exit 1
-          fi
+    val email: String? = null,
 
-          PROJECT_DIR=$(dirname "$settings_file")
+    @Json(name = "date_of_birth")
+    val dateOfBirth: String? = null,
 
-          if [ ! -d "$PROJECT_DIR/app" ]; then
-            echo "Android app module not found"
-            exit 1
-          fi
+    val age: Int? = null,
+    val gender: String? = null,
+    val location: String? = null,
+    val denomination: String? = null,
+    val occupation: String? = null,
+    val education: String? = null,
+    val bio: String? = null,
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+    @Json(name = "relationship_intent")
+    val relationshipIntent: String? = null,
 
-      - name: Configure Supabase credentials
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "$SUPABASE_URL"
-          test -n "$SUPABASE_ANON_KEY"
-          printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > "$PROJECT_DIR/.env"
-          chmod 600 "$PROJECT_DIR/.env"
+    @Json(name = "faith_values")
+    val faithValues: List<String>? = null,
 
-      - name: Create temporary debug signing key
-        run: |
-          keytool -genkeypair -v \
-            -keystore "$PROJECT_DIR/debug.keystore" \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+    @Json(name = "favorite_verse")
+    val favoriteVerse: String? = null,
 
-      - name: Build debug APK
-        run: |
-          gradle -p "$PROJECT_DIR" --no-daemon assembleDebug --stacktrace
+    @Json(name = "avatar_url")
+    val avatarUrl: String? = null,
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Covenant-Connect-APK
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          
+    @Json(name = "email_verified")
+    val emailVerified: Boolean? = null
+)
+
+
+// ==========================================
+// CONNECTION REQUEST MODEL
+// ==========================================
+
+@JsonClass(generateAdapter = true)
+data class ConnectionRequestDto(
+    val id: String? = null,
+
+    @Json(name = "sender_id")
+    val senderId: String,
+
+    @Json(name = "receiver_id")
+    val receiverId: String,
+
+    val status: String = "pending",
+    val note: String? = null,
+
+    @Json(name = "created_at")
+    val createdAt: String? = null
+)
+
+
+// ==========================================
+// MATCH MODEL
+// Actual database columns: user1_id, user2_id
+// ==========================================
+
+@JsonClass(generateAdapter = true)
+data class MatchDto(
+    val id: String? = null,
+
+    @Json(name = "user1_id")
+    val userOneId: String,
+
+    @Json(name = "user2_id")
+    val userTwoId: String,
+
+    val status: String? = null,
+
+    @Json(name = "created_at")
+    val createdAt: String? = null
+)
+
+
+// ==========================================
+// MESSAGE MODEL
+// ==========================================
+
+@JsonClass(generateAdapter = true)
+data class MessageDto(
+    val id: String? = null,
+
+    @Json(name = "match_id")
+    val matchId: String,
+
+    @Json(name = "sender_id")
+    val senderId: String,
+
+    val content: String,
+
+    @Json(name = "created_at")
+    val createdAt: String? = null
+)
+
+
+// ==========================================
+// NOTIFICATION MODEL
+// ==========================================
+
+@JsonClass(generateAdapter = true)
+data class NotificationDto(
+    val id: String? = null,
+
+    @Json(name = "user_id")
+    val userId: String,
+
+    val type: String,
+    val title: String,
+    val body: String,
+
+    @Json(name = "is_read")
+    val isRead: Boolean = false,
+
+    @Json(name = "created_at")
+    val createdAt: String? = null
+)
+
+
+// ==========================================
+// SUPABASE API SERVICE
+// ==========================================
+
+interface SupabaseApiService {
+
+    // AUTHENTICATION
+
+    @POST("auth/v1/signup")
+    suspend fun signUp(
+        @Header("apikey") apiKey: String,
+        @Body body: SupabaseAuthRequest
+    ): Response<SupabaseAuthResponse>
+
+    @POST("auth/v1/token?grant_type=password")
+    suspend fun signInWithPassword(
+        @Header("apikey") apiKey: String,
+        @Body body: SupabaseAuthRequest
+    ): Response<SupabaseAuthResponse>
+
+    @POST("auth/v1/resend")
+    suspend fun resendVerification(
+        @Header("apikey") apiKey: String,
+        @Body body: SupabaseResendRequest
+    ): Response<Unit>
+
+
+    // PROFILES
+    // Discovery uses the safe database view.
+
+    @GET("rest/v1/discoverable_profiles?select=*")
+    suspend fun getProfiles(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String
+    ): Response<List<ProfileDto>>
+
+    // Fetch the authenticated user's own profile.
+
+    @GET("rest/v1/profiles?select=*")
+    suspend fun getProfileById(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Query("id") idEqFilter: String
+    ): Response<List<ProfileDto>>
+
+    // Create or update a profile.
+
+    @POST("rest/v1/profiles")
+    suspend fun upsertProfile(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Header("Prefer") prefer: String =
+            "resolution=merge-duplicates,return=representation",
+        @Body profile: ProfileDto
+    ): Response<List<ProfileDto>>
+
+
+    // CONNECTION REQUESTS
+
+    @GET("rest/v1/connection_requests?select=*")
+    suspend fun getConnectionRequests(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String
+    ): Response<List<ConnectionRequestDto>>
+
+    @POST("rest/v1/connection_requests")
+    suspend fun createConnectionRequest(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Header("Prefer") prefer: String = "return=representation",
+        @Body request: ConnectionRequestDto
+    ): Response<List<ConnectionRequestDto>>
+
+    @PATCH("rest/v1/connection_requests")
+    suspend fun updateConnectionRequestStatus(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Query("id") idEqFilter: String,
+        @Body statusPatch: Map<String, String>
+    ): Response<Unit>
+
+
+    // MATCHES
+    // Actual columns: user1_id and user2_id.
+
+    @GET("rest/v1/matches?select=*")
+    suspend fun getMatches(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String
+    ): Response<List<MatchDto>>
+
+    @POST("rest/v1/matches")
+    suspend fun createMatch(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Header("Prefer") prefer: String = "return=representation",
+        @Body match: MatchDto
+    ): Response<List<MatchDto>>
+
+
+    // PRIVATE MESSAGES
+
+    @GET("rest/v1/messages?select=*&order=created_at.asc")
+    suspend fun getMessagesForMatch(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Query("match_id") matchIdEqFilter: String
+    ): Response<List<MessageDto>>
+
+    @POST("rest/v1/messages")
+    suspend fun sendMessage(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Header("Prefer") prefer: String = "return=representation",
+        @Body message: MessageDto
+    ): Response<List<MessageDto>>
+
+
+    // NOTIFICATIONS
+
+    @GET("rest/v1/notifications?select=*&order=created_at.desc")
+    suspend fun getNotifications(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Query("user_id") userIdEqFilter: String
+    ): Response<List<NotificationDto>>
+
+    @PATCH("rest/v1/notifications")
+    suspend fun markAllNotificationsRead(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") bearerToken: String,
+        @Query("user_id") userIdEqFilter: String,
+        @Body patch: Map<String, Boolean> =
+            mapOf("is_read" to true)
+    ): Response<Unit>
+}
